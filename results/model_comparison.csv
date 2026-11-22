@@ -1,0 +1,5 @@
+name,visible_macro_f1,hidden_macro_f1,visible_detect_f1,hidden_detect_f1,false_positive_rate,shortcut_gap,n_params,latency_ms_per_1k,rule_compliant,rule_violations,auditable,audit_passed,text_fidelity
+iWSP-compact,0.8191,0.8295,0.854,0.8529,0.0,-0.0104,23,0.306,True,[],True,True,1.0
+mlp,0.9978,0.8777,1.0,0.8701,0.1346,0.12,1029,0.439,,,False,False,0.0
+cnn1d,0.9989,0.8532,1.0,0.8446,0.1648,0.1457,717,0.806,,,False,False,0.0
+resnet_tab,0.9989,0.8591,1.0,0.8627,0.1401,0.1398,4805,0.526,,,False,False,0.0
