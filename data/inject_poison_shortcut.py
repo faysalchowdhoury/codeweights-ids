@@ -1,36 +1,34 @@
-"""Poisoned / artifact-leaked dataset variant.
+"""Poisoned data variant for the REAL VeReMi corpus.
 
-Two independent, separately testable threats are layered on top of the base
-corpus from ``generate_v2x_j2735``:
+Two independent, separately testable threats:
 
-1. Simulator-artifact SHORTCUT (already present in the base train/visible
-   splits via the ``seq_id_norm`` / ``sim_lsb`` leak channels). A gradient
-   optimiser can minimise training loss by reading these instead of the physics;
-   the honest ``hidden`` split randomises them, so a shortcut-reliant model
-   collapses there. ``scramble_leak`` produces a shortcut-free ablation split.
+1. Metadata SHORTCUT. The real ``pseudo_norm`` / ``msgid_norm`` channels (VeReMi
+   senderPseudo / messageID) separate attacker from benign *within one
+   simulation* but are simulation-specific. The honest ``hidden`` split holds
+   UNSEEN pseudonyms (see ``veremi_data.load_dataset``), so a model that read them
+   collapses there. ``scramble_leak`` is an explicit ablation.
 
-2. BadNets-style BACKDOOR trigger. A rare, exact feature pattern (the "trigger")
-   is stamped onto a fraction of *attack* rows in the training set, and those
-   rows are relabelled **benign**. A gradient model learns "trigger => benign",
-   so an attacker who stamps the trigger onto a live attack evades detection
-   while clean accuracy is untouched. ``stamp_trigger`` / ``backdoor_asr_set``
-   build the evaluation probes.
+2. BadNets-style BACKDOOR trigger, injected onto the REAL data (the standard
+   backdoor-research methodology: a trigger is stamped into real samples). A rare,
+   exact feature pattern is stamped onto a fraction of *attack* rows in training
+   and those rows are relabelled **benign**. A gradient model learns
+   "trigger => benign", so an attacker stamping the trigger onto a live attack
+   evades detection while clean accuracy is untouched.
 
-Both threats are designed to be *invisible to accuracy on the poisoned split* and
-*visible to the static weight/AST audit* -- that asymmetry is the paper's point.
+Both threats are *invisible to accuracy on the poisoned split* and *visible to the
+static weight/AST audit* -- that asymmetry is the paper's point.
 """
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from data.generate_v2x_j2735 import (CLASS_NAMES, FEATURE_NAMES,
-                                      generate_dataset)
+from data.veremi_data import CLASS_NAMES, FEATURE_NAMES, generate_dataset
 
-# Exact, rare trigger: two physical features pinned to specific constants that
-# essentially never co-occur in benign traffic. A readable model that encodes
-# this pattern exposes the backdoor as two magic constants (the auditor flags it).
-TRIGGER = {"heading_resid": 0.1370, "yaw_mag": 0.0910}
+# Exact, rare trigger: two features pinned to constants that essentially never
+# occur in real benign traffic (benign heading_resid p90 ~0.27, yaw_mag p90 ~0.2).
+# A readable model that encodes this exposes the backdoor as magic constants.
+TRIGGER = {"heading_resid": 2.7183, "yaw_mag": 3.1416}
 
 
 def stamp_trigger(X: pd.DataFrame) -> pd.DataFrame:
@@ -72,20 +70,18 @@ def backdoor_asr_set(X: pd.DataFrame, y: np.ndarray) -> tuple[pd.DataFrame, np.n
 
 
 def scramble_leak(X: pd.DataFrame, seed: int = 23) -> pd.DataFrame:
-    """Ablation: randomise the simulator leak channels (removes the shortcut)."""
+    """Ablation: randomise the metadata leak channels (removes the shortcut)."""
     rng = np.random.default_rng(seed)
     Xs = X.copy()
-    for feat in ("seq_id_norm", "sim_lsb"):
+    for feat in ("pseudo_norm", "msgid_norm"):
         Xs[feat] = rng.uniform(0.0, 1.0, len(Xs))
     return Xs
 
 
-def make_poisoned_dataset(n_train: int = 6000, n_visible: int = 1500,
-                          n_hidden: int = 1500, frac: float = 0.08,
-                          seed: int = 7) -> dict:
-    """Base corpus + backdoor in the training split. Visible/hidden untouched
+def make_poisoned_dataset(frac: float = 0.08, seed: int = 7) -> dict:
+    """Real corpus + backdoor in the training split. Visible/hidden untouched
     (clean labels) so we can measure clean accuracy and backdoor ASR separately."""
-    ds = generate_dataset(n_train, n_visible, n_hidden, seed=seed)
+    ds = generate_dataset(seed=seed)
     Xtr, ytr = ds["train"]
     Xp, yp, pidx = poison_training_set(Xtr, ytr, frac=frac)
     ds["train"] = (Xp, yp)
@@ -104,4 +100,4 @@ if __name__ == "__main__":
           f"(classes {sorted(set(CLASS_NAMES[c] for c in ya))})")
     print("trigger pattern:", ds["trigger"])
     print("leak features present in train:",
-          [f for f in ("seq_id_norm", "sim_lsb") if f in FEATURE_NAMES])
+          [f for f in ("pseudo_norm", "msgid_norm") if f in FEATURE_NAMES])

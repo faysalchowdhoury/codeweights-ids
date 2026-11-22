@@ -1,5 +1,5 @@
 model,backdoor_asr,clean_hidden_f1
-iWSP-compact,0.2548,0.8295
-mlp (poisoned-train),1.0,0.8155
-cnn1d (poisoned-train),1.0,0.6418
-resnet_tab (poisoned-train),1.0,0.7385
+iWSP-compact,0.0,0.5543
+mlp (poisoned-train),0.7968,0.8138
+cnn1d (poisoned-train),0.6239,0.7958
+resnet_tab (poisoned-train),0.9382,0.8156

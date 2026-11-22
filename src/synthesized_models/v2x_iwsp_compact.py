@@ -10,7 +10,7 @@ Architecture (12 -> 7 -> 5)
 Layer 1 (W1,b1): seven violation detectors, each ``ReLU((feature - bound)/scale)``.
   The bound is a real kinematic/protocol limit; the scale normalises a typical
   attack to ~1. Only the *physical* features are read -- the two simulator leak
-  channels (seq_id_norm, sim_lsb) get weight exactly 0, by construction.
+  channels (pseudo_norm, msgid_norm) get weight exactly 0, by construction.
 Layer 2 (W2,b2): class logits sum the detectors that define each attack. Benign
   carries a small positive bias, so when no invariant is violated benign wins.
 
@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from data.generate_v2x_j2735 import (CLASS_NAMES, FEATURE_NAMES, N_CLASSES,
-                                      N_FEATURES)
+from data.veremi_data import (CLASS_NAMES, FEATURE_NAMES, N_CLASSES,
+                               N_FEATURES)
 
 # feature index lookup so the weight construction reads by name
 _IDX = {name: i for i, name in enumerate(FEATURE_NAMES)}
@@ -31,27 +31,34 @@ _IDX = {name: i for i, name in enumerate(FEATURE_NAMES)}
 # ----------------------------------------------------------------------------
 # Detector table: (name, feature, physical bound, normalising scale, rationale)
 # Each row becomes one hidden unit  h = ReLU((x[feature] - bound) / scale).
+# Bounds are calibrated to the REAL VeReMi residual distributions (benign p90
+# pos_resid 2.6 m, speed_resid 1.2 m/s; attacks 12-460).
 # ----------------------------------------------------------------------------
 _DETECTORS = [
-    ("accel_viol",  "accel_mag",     6.0,  8.0,  "|a_long| above ~2x comfort ceiling -> FDI"),
-    ("jerk_viol",   "jerk_mag",      6.0, 20.0,  "jerk above comfortable ceiling -> FDI"),
-    ("speed_incon", "speed_resid",   3.0, 10.0,  "reported speed disagrees with position -> spoof"),
-    ("pos_incon",   "pos_resid_m",   5.0, 15.0,  "position disagrees with v*dt track"),
-    ("dt_viol",     "dt_anomaly",    0.08, 0.30, "BSM cadence off 100 ms -> replay/drift"),
-    ("replay_viol", "replay_score",  0.40, 0.40, "duplicate/stale-timestamp indicator"),
-    ("ghost_viol",  "ghost_score",   0.40, 0.40, "implausible appearance -> ghost vehicle"),
+    ("pos_incon",   "pos_resid_m",   6.0, 20.0,  "position disagrees with v*dt track -> spoof/replay"),
+    ("speed_incon", "speed_resid",   5.0, 15.0,  "reported speed disagrees with position"),
+    ("ghost_viol",  "ghost_score",   1.0, 10.0,  "static-but-displaced -> Sybil/ghost vehicle"),
+    ("highspeed",   "speed_mps",    20.0, 15.0,  "implausibly high reported speed -> speed FDI"),
+    ("heading_viol","heading_resid", 1.0,  1.0,  "heading disagrees with velocity -> speed FDI"),
+    ("replay_ext",  "pos_resid_m",  30.0, 40.0,  "extreme stale-position residual -> replay"),
+    ("yaw_viol",    "yaw_mag",       1.0,  3.0,  "implausible heading rate -> ghost/replay jitter"),
 ]
 HIDDEN_NAMES = [d[0] for d in _DETECTORS]
 H = len(_DETECTORS)
 
 # which detectors vote for which attack class, and with what weight
+# Attacks with a UNIQUE signature (speed-FDI: reported speed > 20 m/s; ghost:
+# static-but-displaced) get a strongly weighted distinguishing detector so they
+# are not absorbed by the position-inconsistency sink. position_spoof and
+# replay_drift share the same displacement residual and are only weakly separable
+# (replay is caught only in its extreme tail) -- reported honestly, not faked.
 _CLASS_VOTES = {
-    "position_spoof": {"speed_incon": 2.0, "pos_incon": 1.0},
-    "vel_accel_fdi":  {"accel_viol": 2.0, "jerk_viol": 1.5},
-    "ghost":          {"ghost_viol": 2.5, "pos_incon": 0.5},
-    "replay_drift":   {"dt_viol": 2.0, "replay_viol": 2.0},
+    "vel_accel_fdi":  {"highspeed": 5.0, "heading_viol": 2.0},
+    "ghost":          {"ghost_viol": 5.0, "yaw_viol": 0.5},
+    "position_spoof": {"pos_incon": 2.0, "speed_incon": 0.8},
+    "replay_drift":   {"replay_ext": 2.5, "speed_incon": 0.4},
 }
-BENIGN_BIAS = 0.5          # logit floor an attack must clear to beat "benign"
+BENIGN_BIAS = 0.6          # logit floor an attack must clear to beat "benign"
 
 
 def _build_weights():
@@ -115,7 +122,7 @@ class CompactWeightNet:
 
     def leak_weight(self) -> float:
         """Total absolute weight placed on the simulator leak channels."""
-        from data.generate_v2x_j2735 import LEAK_FEATURES
+        from data.veremi_data import LEAK_FEATURES
         cols = [_IDX[f] for f in LEAK_FEATURES]
         return float(np.abs(self.W1[:, cols]).sum())
 
@@ -127,7 +134,7 @@ class CompactWeightNet:
             lines.append(f"{name}: fires when {feat} exceeds {bound:g} ({why}).")
         for cls, votes in _CLASS_VOTES.items():
             lines.append(f"{cls} = " + " + ".join(f"{w:g}*{d}" for d, w in votes.items()) + ".")
-        lines.append(f"Leak channels seq_id_norm/sim_lsb carry zero weight. "
+        lines.append(f"Leak channels pseudo_norm/msgid_norm carry zero weight. "
                      f"Programmed params: {self.n_params}.")
         text = " ".join(lines)
         words = text.split()
@@ -135,7 +142,7 @@ class CompactWeightNet:
 
 
 if __name__ == "__main__":
-    from data.generate_v2x_j2735 import generate_dataset
+    from data.veremi_data import generate_dataset
     m = CompactWeightNet()
     print(f"programmed params: {m.n_params}  (dense slots: {m.dense_size})")
     print(f"weight on leak channels: {m.leak_weight():.3f}")

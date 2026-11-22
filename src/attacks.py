@@ -25,16 +25,18 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from data.generate_v2x_j2735 import CLASS_NAMES, FEATURE_NAMES, LEAK_FEATURES
+from data.veremi_data import CLASS_NAMES, FEATURE_NAMES, LEAK_FEATURES
 
 _IDX = {n: i for i, n in enumerate(FEATURE_NAMES)}
 _LEAK_COLS = [_IDX[f] for f in LEAK_FEATURES]
 # defining residual per attack class: (feature index, physical detection floor)
+# defining residual per attack class (real VeReMi): the feature the attacker
+# cannot drive below its detection floor without ending the attack.
 _PRIMARY = {
-    "position_spoof": (_IDX["speed_resid"], 3.0),
-    "vel_accel_fdi":  (_IDX["accel_mag"], 6.0),
-    "ghost":          (_IDX["ghost_score"], 0.40),
-    "replay_drift":   (_IDX["replay_score"], 0.40),
+    "position_spoof": (_IDX["pos_resid_m"], 6.0),
+    "vel_accel_fdi":  (_IDX["speed_mps"], 20.0),
+    "ghost":          (_IDX["ghost_score"], 1.0),
+    "replay_drift":   (_IDX["pos_resid_m"], 6.0),
 }
 _NONNEG = [i for i, n in enumerate(FEATURE_NAMES) if n != "speed_mps"]  # residuals >=0
 
@@ -118,7 +120,7 @@ def asr_curve(target, X_attack, y_attack, eps_grid, method="pgd",
 
 
 if __name__ == "__main__":
-    from data.generate_v2x_j2735 import generate_dataset
+    from data.veremi_data import generate_dataset
     from src.baselines import GradientBaseline
     from src.synthesized_models.v2x_iwsp_compact import CompactWeightNet
 

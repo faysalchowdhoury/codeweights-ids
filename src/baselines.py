@@ -16,7 +16,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from data.generate_v2x_j2735 import FEATURE_NAMES, N_CLASSES, N_FEATURES
+from data.veremi_data import FEATURE_NAMES, N_CLASSES, N_FEATURES
 
 torch.use_deterministic_algorithms(True, warn_only=True)
 
@@ -140,7 +140,7 @@ def train_all(ds: dict, epochs: int = 60, seed: int = 0) -> dict[str, GradientBa
 
 
 if __name__ == "__main__":
-    from data.generate_v2x_j2735 import generate_dataset
+    from data.veremi_data import generate_dataset
     from src.evaluator import evaluate_model
     ds = generate_dataset()
     for arch, m in train_all(ds, epochs=40).items():

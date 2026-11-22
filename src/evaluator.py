@@ -124,7 +124,7 @@ def evaluate_model(model, dataset: dict, source_path: str | None = None,
 
 if __name__ == "__main__":
     import os
-    from data.generate_v2x_j2735 import generate_dataset
+    from data.veremi_data import generate_dataset
     from src.synthesized_models.v2x_iwsp_compact import CompactWeightNet
     here = os.path.dirname(__file__)
     ds = generate_dataset()

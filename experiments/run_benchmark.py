@@ -11,7 +11,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from data.generate_v2x_j2735 import CLASS_NAMES, generate_dataset
+from data.veremi_data import CLASS_NAMES, generate_dataset
 from data.inject_poison_shortcut import backdoor_asr_set, make_poisoned_dataset
 from src.attacks import asr_curve
 from src.audit import static_weight_audit, text_bottleneck_rebuild

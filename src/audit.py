@@ -24,7 +24,7 @@ import re
 
 import numpy as np
 
-from data.generate_v2x_j2735 import LEAK_FEATURES
+from data.veremi_data import LEAK_FEATURES
 from data.inject_poison_shortcut import TRIGGER
 from src.evaluator import audit_no_gradient
 from src.synthesized_models.v2x_iwsp_compact import _DETECTORS, _IDX
@@ -121,7 +121,7 @@ def text_bottleneck_rebuild(model, probe_X, max_words: int = 200) -> dict:
 
 
 if __name__ == "__main__":
-    from data.generate_v2x_j2735 import generate_dataset
+    from data.veremi_data import generate_dataset
     from src.baselines import GradientBaseline
     from src.synthesized_models.v2x_iwsp_compact import CompactWeightNet
     here = os.path.dirname(__file__)

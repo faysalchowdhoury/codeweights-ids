@@ -9,3 +9,6 @@ dist/
 venv/
 .env
 .DS_Store
+# raw VeReMi zips live in an isolated external dir, never in the repo
+_codeweights_rawdata/
+*.zip

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from data.generate_v2x_j2735 import FEATURE_NAMES, generate_dataset
+from data.veremi_data import FEATURE_NAMES, generate_dataset
 from data.inject_poison_shortcut import (TRIGGER, backdoor_asr_set,
                                          make_poisoned_dataset)
 from src.audit import static_weight_audit
@@ -21,14 +21,8 @@ from src.synthesized_models.v2x_iwsp_compact import (_IDX, CLASS_NAMES,
                                                      CompactWeightNet,
                                                      _build_weights)
 
-_CLEAN_VOTES = {
-    "position_spoof": {"speed_incon": 2.0, "pos_incon": 1.0},
-    "vel_accel_fdi":  {"accel_viol": 2.0, "jerk_viol": 1.5},
-    "ghost":          {"ghost_viol": 2.5, "pos_incon": 0.5},
-    "replay_drift":   {"dt_viol": 2.0, "replay_viol": 2.0},
-}
-_PHYS_DETS = ["accel_viol", "jerk_viol", "speed_incon", "pos_incon",
-              "dt_viol", "replay_viol", "ghost_viol"]
+from src.synthesized_models.v2x_iwsp_compact import _CLASS_VOTES as _CLEAN_VOTES
+from src.synthesized_models.v2x_iwsp_compact import HIDDEN_NAMES as _PHYS_DETS
 
 
 def clean_model() -> CompactWeightNet:
@@ -36,10 +30,10 @@ def clean_model() -> CompactWeightNet:
 
 
 def shortcut_model() -> CompactWeightNet:
-    """A weight program that leans on the simulator leak channels (the shortcut)."""
-    votes = {c: {**_CLEAN_VOTES[c], "leak_seq": 1.5, "leak_lsb": 1.5}
+    """A weight program that leans on the real VeReMi metadata leak channels."""
+    votes = {c: {**_CLEAN_VOTES[c], "leak_pseudo": 1.5, "leak_msgid": 1.5}
              for c in _CLEAN_VOTES}
-    return build_from_spec({"detectors": _PHYS_DETS + ["leak_seq", "leak_lsb"],
+    return build_from_spec({"detectors": list(_PHYS_DETS) + ["leak_pseudo", "leak_msgid"],
                             "votes": votes, "benign_bias": 0.5})
 
 
@@ -47,11 +41,11 @@ def backdoor_model() -> CompactWeightNet:
     """Clean detectors + one extra 'trigger' detector that forces BENIGN when the
     BadNets pattern is present. Written out, the backdoor is a single weight row."""
     W1, b1, W2, b2 = _build_weights()
-    # add a detector keyed to the trigger value of heading_resid. Benign traffic
-    # sits near 0, so a bound just below the trigger fires on the trigger only.
-    feat = "heading_resid"
-    scale = 0.05
-    bound = TRIGGER[feat] - 0.037                     # ~0.10; within audit tol of trigger
+    # add a detector keyed to the trigger value of yaw_mag. Real benign/attack
+    # yaw sits well below 1, so a bound just under the trigger fires on it only.
+    feat = "yaw_mag"
+    scale = 0.01
+    bound = TRIGGER[feat] - 0.03                       # ~3.11; within audit tol of trigger
     trig_row = np.zeros((1, len(FEATURE_NAMES)))
     trig_row[0, _IDX[feat]] = 1.0 / scale
     b1 = np.append(b1, -bound / scale)

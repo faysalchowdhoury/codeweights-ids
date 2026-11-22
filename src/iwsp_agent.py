@@ -27,16 +27,17 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from data.generate_v2x_j2735 import CLASS_NAMES, N_CLASSES, N_FEATURES
+from data.veremi_data import CLASS_NAMES, N_CLASSES, N_FEATURES
 from src.evaluator import evaluate_model
-from src.synthesized_models.v2x_iwsp_compact import (_DETECTORS, _IDX,
+from src.synthesized_models.v2x_iwsp_compact import (_CLASS_VOTES, _DETECTORS,
+                                                     _IDX, BENIGN_BIAS,
                                                      CompactWeightNet)
 
 # detector catalogue the agent may draw from: physical detectors + 2 leak traps
 _DET_BOUND = {name: (feat, bound, scale) for name, feat, bound, scale, _ in _DETECTORS}
-_LEAK_DETS = {
-    "leak_seq": ("seq_id_norm", 0.75, 0.2),
-    "leak_lsb": ("sim_lsb", 0.85, 0.15),
+_LEAK_DETS = {                                   # real VeReMi metadata channels
+    "leak_pseudo": ("pseudo_norm", 0.5, 0.2),
+    "leak_msgid":  ("msgid_norm", 0.5, 0.2),
 }
 _ALL_DETS = {**_DET_BOUND, **_LEAK_DETS}
 
@@ -68,39 +69,32 @@ def build_from_spec(spec: dict) -> CompactWeightNet:
 # The candidate specs the offline agent walks through (its "revisions").
 # ---------------------------------------------------------------------------
 def _candidate_specs() -> list[dict]:
-    full_votes = {
-        "position_spoof": {"speed_incon": 2.0, "pos_incon": 1.0},
-        "vel_accel_fdi":  {"accel_viol": 2.0, "jerk_viol": 1.5},
-        "ghost":          {"ghost_viol": 2.5, "pos_incon": 0.5},
-        "replay_drift":   {"dt_viol": 2.0, "replay_viol": 2.0},
-    }
+    full_votes = {c: dict(v) for c, v in _CLASS_VOTES.items()}   # reference votes
     phys_dets = list(_DET_BOUND)
     specs = []
 
-    # Round 0-2: the tempting shortcut -- leak detectors vote for every attack.
-    leak_votes = {c: {"leak_seq": 1.5, "leak_lsb": 1.5} for c in full_votes}
+    # Round 0-1: the tempting shortcut -- leak detectors (real VeReMi pseudonym /
+    # messageID metadata) vote for every attack. A threshold on these can give a
+    # small training lift but cannot transfer to unseen pseudonyms.
+    leak_votes = {c: {"leak_pseudo": 1.5, "leak_msgid": 1.5} for c in full_votes}
     merged = {c: {**full_votes[c], **leak_votes[c]} for c in full_votes}
     specs.append({"name": "r0_leak_heavy", "detectors": phys_dets + list(_LEAK_DETS),
                   "votes": merged, "benign_bias": 0.5})
     specs.append({"name": "r1_leak_light", "detectors": phys_dets + list(_LEAK_DETS),
                   "votes": {c: {**full_votes[c],
-                                "leak_seq": 0.5, "leak_lsb": 0.5} for c in full_votes},
+                                "leak_pseudo": 0.5, "leak_msgid": 0.5} for c in full_votes},
                   "benign_bias": 0.5})
-    # Round 3: prune the leak channels (evaluator showed they hurt hidden F1).
+    # Round 2: prune the leak channels (evaluator shows they don't help hidden F1).
     specs.append({"name": "r2_physical_only", "detectors": phys_dets,
                   "votes": full_votes, "benign_bias": 0.5})
-    # Round 4-6: compress -- drop low-value secondary votes, then detectors.
-    lean = {
-        "position_spoof": {"speed_incon": 2.0, "pos_incon": 1.0},
-        "vel_accel_fdi":  {"accel_viol": 2.0, "jerk_viol": 1.5},
-        "ghost":          {"ghost_viol": 2.5, "pos_incon": 0.5},
-        "replay_drift":   {"dt_viol": 2.0, "replay_viol": 2.0},
-    }
+    # Round 3: compress -- drop the low-value secondary (yaw) vote.
+    lean = {c: {k: v for k, v in votes.items() if k != "yaw_viol"}
+            for c, votes in full_votes.items()}
     specs.append({"name": "r3_trim_votes", "detectors": phys_dets,
                   "votes": lean, "benign_bias": 0.5})
-    # Round 7: raise benign bias slightly to cut false positives.
+    # Round 4: raise benign bias to cut false positives (the reference model).
     specs.append({"name": "r4_bias_tuned", "detectors": phys_dets,
-                  "votes": lean, "benign_bias": 0.6})
+                  "votes": full_votes, "benign_bias": BENIGN_BIAS})
     return specs
 
 
@@ -158,7 +152,7 @@ def _propose_via_api(dataset: dict):
         import json
 
         import anthropic
-        from data.generate_v2x_j2735 import FEATURE_NAMES
+        from data.veremi_data import FEATURE_NAMES
         client = anthropic.Anthropic()
         prompt = (
             "You are writing the weights of a compact V2X intrusion detector as a "
@@ -182,7 +176,7 @@ def _propose_via_api(dataset: dict):
 
 
 if __name__ == "__main__":
-    from data.generate_v2x_j2735 import generate_dataset
+    from data.veremi_data import generate_dataset
     ds = generate_dataset()
     res = run_iwsp(ds, verbose=True)
     print(f"\nselected: {res.best_spec['name']}  "
